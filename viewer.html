@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>在线漫画阅读器</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=5.0,user-scalable=1" />
+    <style>
+    .fullpage {
+        width: 100%;
+        height: 100%;
+    }
+    </style>
+
+</head>
+
+<body>
+
+    <div class="control" style="width:100%;">
+        <button onclick="previousPage()" style="height:20px;"><--</button>
+        <button onclick="previousPanel()" style="height:20px;"><-</button>
+        <button onclick="nextPage()" style="height:20px;float:right;">--></button>
+        <button onclick="nextPanel()" style="height:20px;float:right;">-></button>
+        <input id="originalChk" type="CheckBox" name="original" value="original" onChange="onOriginalChanged()" />原图
+    </div>
+    <div class="fullpage">
+        <img id="image" alt="image" src="" style="max-width:100%;"/>
+        <canvas id="panelCanvas" style="display:none;margin: 0 auto;max-width:100%;"></canvas>
+    </div>
+    
+    
+    <div class="control" style="width:100%;">
+        <button onclick="previousPage()" style="height:20px;"><--</button>
+        <button onclick="previousPanel()" style="height:20px;"><-</button>
+        <button onclick="nextPage()" style="height:20px;float:right;">--></button>
+        <button onclick="nextPanel()" style="height:20px;float:right;">-></button>
+        <input id="panelModeChk" type="CheckBox" name="panelmode" value="panelmode" onChange="onPanelmodeChanged()" />分镜模式
+    </div>
+    
+    <div class="text">
+    </div
+    
+    <form>
+        <button id="play">播放语音</button>
+        <button id="stop">停止语音</button>
+        <div>
+            <label for="rate">Rate</label><input type="range" min="0.5" max="2" value="1" step="0.1" id="rate">
+            <span class="rate-value">1</span>
+        </div>
+        <div>
+            <label for="pitch">Pitch</label><input type="range" min="0" max="2" value="1" step="0.1" id="pitch">
+            <span class="pitch-value">1</span>
+        </div>
+        原文语音：
+        <select class="source-voice-select"></select>
+        <br/>
+        译文语音：
+        <select class="target-voice-select"></select>
+        <div>
+            <input type="checkbox" id="readsource" name="readsource">
+            <label for="readsource">原文</label>
+            <input type="checkbox" id="readtarget" name="readtarget"
+             checked>
+            <label for="readtarget">译文</label>
+        </div>
+        
+    </form>
+    <script type="text/javascript" src="./tts.js"></script>
+    <script type="text/javascript">
+    var data;
+    var index = 0;
+    var panelIndex = -1;
+    var panelMode = false;
+
+    document.getElementById("image").onload = imageLoaded;
+    document.getElementById("readsource").onchange = saveCookie;
+    document.getElementById("readtarget").onchange = saveCookie;
+    getData();
+    populateBothVoiceList();
+    
+    function getData(){
+        var url = getURL();
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url);
+        xhr.onreadystatechange = function(){
+            if(xhr.readyState === 4){
+                console.log(xhr.status);
+                //console.log(xhr.responseText);
+                data = JSON.parse(xhr.responseText);
+                loadImage(getPageIndex());
+                loadText(index);
+                
+                if (getQueryVariable("playing") == "true") {
+                    startSpeaking();
+                }
+            }
+        }
+        xhr.send();
+    }
+    
+    function getPageIndex(){
+        var page = getQueryVariable("page");
+        if (page == "") {
+            return 0;
+        }else{
+            return parseInt(page - 1);
+        }
+    }
+    
+    function getURL(){
+        var url;
+        var uniqueName = getQueryVariable("uniquename");
+        if (uniqueName == "") {
+            url = "./data.json";
+            root = ".";
+        }else{
+            url = "./data/"+ uniqueName + "/data.json";
+            root = "./data/"+ uniqueName;
+        }
+        
+        return url;
+    }
+    
+    function getQueryVariable(variable){
+        var query = window.location.search.substring(1);
+        var vars = query.split("&");
+        for (var i=0;i<vars.length;i++) {
+            var pair = vars[i].split("=");
+            if(pair[0] == variable){return pair[1];}
+        }
+        return "";
+    }
+    
+    function loadImage(offset){
+        var images = data["images"];
+        index = index + offset;
+        index = handleBounds(index);
+        var imgUrl;
+        
+        var original = getOriginal();
+        if (original == "yes"){
+            imgUrl = root + "/" + images[index]["filename"];
+        } else{
+            imgUrl = root + "/out/" + images[index]["filename"];
+        }
+
+        document.getElementById("image").src=imgUrl;
+    }
+    
+    function loadText(offset){
+        var images = data["images"];
+        var sourceList = images[index]["source"];
+        var targetList = images[index]["target"];
+        var ol = document.createElement("ol");
+        ol.className = "text-list";
+        for (var i=0;i<sourceList.length;i++) {
+            var listItem = document.createElement("li");
+            listItem.className = "text-box-item";
+            var sourceListItem = document.createElement("li");
+            var targetListItem = document.createElement("li");
+            sourceListItem.innerText = sourceList[i];
+            targetListItem.innerText = targetList[i];
+            var ul = document.createElement("ul");
+            ul.appendChild(sourceListItem);
+            ul.appendChild(targetListItem);
+            listItem.appendChild(ul);
+            ol.appendChild(listItem);
+        }
+        
+        var textContainer = document.getElementsByClassName("text")[0];
+        textContainer.appendChild(ol)
+    }
+    
+    function handleBounds(index) {
+        var images = data["images"];
+        index = Math.min(images.length - 1, index);
+        index = Math.max(0, index);
+        return index;
+    }
+    
+    function previousPage(){
+        if (index<=0){
+            alert("到底了");
+            return;
+        }
+        panelIndex = -1;
+        window.location.href = buildURL(Math.max(1, index),getOriginal());
+    }
+    
+    function nextPage(){
+        var maxPage = data["images"].length;
+        var newPage = index + 1 + 1;
+        
+        if (newPage>maxPage){
+            alert("到底了");
+            return;
+        }
+        panelIndex = 0;
+        window.location.href = buildURL(newPage,getOriginal());
+    }
+    
+    function saveCookie(){
+        console.log("save cookie");
+        document.cookie = "rate=" + rate.value;
+        document.cookie = "pitch=" + pitch.value;
+        document.cookie = "sourceEngine=" + sourceVoiceSelect.selectedIndex;
+        document.cookie = "targetEngine=" +targetVoiceSelect.selectedIndex;
+        document.cookie = "readSource=" + document.getElementById("readsource").checked;
+        document.cookie = "readTarget=" + document.getElementById("readtarget").checked;
+    }
+    
+    function onOriginalChanged(){
+        var original = "no";
+        if (document.getElementById("originalChk").checked == true){
+            original = "yes";
+        }
+        window.location.href = buildURL((index+1),original);
+    }
+    
+    function onPanelmodeChanged(){
+        panelMode = document.getElementById("panelModeChk").checked;
+        if (panelIndex == -1) {
+            panelIndex = 0;
+        }
+        window.location.href = buildURL((index+1),getOriginal());
+    }
+    
+    function buildURL(page, original){
+        var uniqueName = getQueryVariable("uniquename");
+        if (uniqueName) {
+            return window.location.origin +window.location.pathname + "?page=" + page + "&original="+original + "&uniquename=" + uniqueName + "&panelMode="+panelMode+ "&panelIndex="+panelIndex+"&playing="+playing;
+        }else{
+            return window.location.origin +window.location.pathname + "?page=" + page + "&original="+original + "&panelMode="+panelMode+ "&panelIndex="+panelIndex+"&playing="+playing;
+        }
+    }
+    
+    function getOriginal(){
+        var original = getQueryVariable("original");
+        if (original == "yes"){
+            document.getElementById("originalChk").checked = true;
+        } else{
+            original = "no";
+            document.getElementById("originalChk").checked = false;
+        }
+        return original;
+    }
+    
+    function getPanelMode(){
+        var panelModeEnabled = getQueryVariable("panelMode");
+        if (panelModeEnabled == "true"){
+            document.getElementById("panelModeChk").checked = true;
+        } else{
+            panelModeEnabled = "false";
+            document.getElementById("panelModeChk").checked = false;
+        }
+        return panelModeEnabled;
+    }
+    
+    function drawPanel(panel){
+        var canvas = document.getElementById('panelCanvas');
+        canvas.width = panel.width;
+        canvas.height = panel.height;
+        var context = canvas.getContext('2d');
+        var sourceX = panel.X;
+        var sourceY = panel.Y;
+        var sourceWidth = panel.width;
+        var sourceHeight = panel.height;
+        var destWidth = sourceWidth;
+        var destHeight = sourceHeight;
+        var destX = canvas.width / 2 - destWidth / 2;
+        var destY = canvas.height / 2 - destHeight / 2;
+        var imageObj = document.getElementById("image");
+        context.drawImage(imageObj, sourceX, sourceY, sourceWidth, sourceHeight, destX, destY, destWidth, destHeight);
+    }
+    
+    function imageLoaded(){
+        console.log("image loaded.");
+        var pIndex = getQueryVariable("panelIndex");
+        if (pIndex) {
+            if (pIndex == -1) {
+                panelIndex = data["images"][index]["panels"].length - 2;
+            }else {
+                panelIndex = pIndex - 1;
+            }
+            
+        }
+        if (getPanelMode() == "true") {
+            loadPanel(1);
+        }
+    }
+    
+    function previousPanel(){
+        loadPanel(-1);
+    }
+    
+    function nextPanel(){
+        if (panelIndex == -1) {
+            panelIndex = 0;
+        }
+        loadPanel(1);
+    }
+    
+    function nextPanelAndStartSpeaking(){
+        loadPanel(1, true);
+    }
+    
+    function loadPanel(offset, speak){
+        panelMode = true;
+        document.getElementById("panelModeChk").checked = true;
+        document.getElementById("image").style.display = "none";
+        document.getElementById("panelCanvas").style.display = "block";
+        var panels = data["images"][index]["panels"];
+        panelIndex = panelIndex + offset;
+        if (panelIndex < 0) {
+            previousPage();
+            return;
+        }
+        if (panelIndex > panels.length - 1) {
+            nextPage();
+            return;
+        }
+        displayOnlyTextOfCurrentPanel();
+        drawPanel(panels[panelIndex]);
+        if (speak == true) {
+            startSpeaking();
+        }
+    }
+    
+    function displayOnlyTextOfCurrentPanel(){
+        console.log("displayOnlyTextOfCurrentPanel");
+        var images = data["images"];
+        console.log(images);
+        console.log(index);
+        var panels = images[index]["panels"];
+        var panel = panels[panelIndex];
+        console.log(panel);
+        var boxes = panel["boxes"];
+        console.log(boxes);
+        var ol = document.querySelector('.text-list');
+        if (ol) {
+            var items = ol.getElementsByClassName("text-box-item");
+            for (var i=0;i<=items.length-1;i++){
+                var item = items[i];
+                if (boxes.indexOf(i)!=-1){
+                    item.style.display = "";
+                }else{
+                    item.style.display = "none";
+                }
+            }
+        }
+    }
+    </script>
+    
+</body>
+
+</html>
